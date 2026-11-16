@@ -1,5 +1,5 @@
 export { AnatomyViewer } from './AnatomyViewer'
-export type { AnatomyPin, AnatomyViewerProps } from './AnatomyViewer'
+export type { AnatomyI18n, AnatomyPin, AnatomyViewerProps } from './AnatomyViewer'
 export { AnatomyModel, DEFAULT_LAYERS, preloadAnatomy } from './AnatomyModel'
 export type { AnatomyModelProps, LayerVisibility, ProjectedAnchor } from './AnatomyModel'
 export { CalloutOverlay } from './CalloutOverlay'

@@ -23,6 +23,22 @@ export interface AnatomyPin {
   color?: string
 }
 
+/** [local] Localization / label overrides for AnatomyViewer. */
+export interface AnatomyI18n {
+  structures?: Record<string, string>
+  systems?: Partial<Record<AnatomySystem, string>>
+  categories?: Record<string, string>
+  male?: string
+  female?: string
+  reset?: string
+  zoomIn?: string
+  zoomOut?: string
+  rotateLabel?: string
+  loading?: string | ((progress: number) => string)
+  bodyGroupLabel?: string
+  systemsGroupLabel?: string
+}
+
 export interface AnatomyViewerProps {
   /** Controlled body. */
   sex?: AnatomySex
@@ -37,6 +53,12 @@ export interface AnatomyViewerProps {
   pins?: AnatomyPin[]
   /** Extra structures to make glow, without a card. */
   highlightedKeys?: readonly string[]
+  /** [local] Per-structure highlight colours. */
+  keyColors?: Record<string, string>
+  /** [local] Structure/system/UI label overrides. */
+  labels?: Record<string, string> | AnatomyI18n
+  /** [local] Structured i18n configuration. */
+  i18n?: AnatomyI18n | Record<string, string>
   onStructureClick?: (key: string, structure: AnatomyStructure) => void
   onStructureHover?: (key: string | null) => void
   /** Second line of the hover label. `null` hides it. */
@@ -93,6 +115,9 @@ export function AnatomyViewer({
   onLayersChange,
   pins = NO_PINS,
   highlightedKeys = NO_KEYS,
+  keyColors,
+  labels,
+  i18n,
   onStructureClick,
   onStructureHover,
   hoverHint = 'Click to select',
@@ -135,16 +160,66 @@ export function AnatomyViewer({
   )
   const anchorKeys = useMemo(() => visiblePins.map(p => p.key), [visiblePins])
 
+  const getStructureLabel = useCallback((key: string, fallback: string) => {
+    const i18nObj = i18n as AnatomyI18n | undefined
+    const labelsObj = labels as AnatomyI18n | undefined
+    const i18nFlat = i18n as Record<string, string> | undefined
+    const labelsFlat = labels as Record<string, string> | undefined
+    return (
+      i18nObj?.structures?.[key] ??
+      labelsObj?.structures?.[key] ??
+      (typeof i18nFlat?.[key] === 'string' ? i18nFlat[key] : undefined) ??
+      (typeof labelsFlat?.[key] === 'string' ? labelsFlat[key] : undefined) ??
+      fallback
+    )
+  }, [i18n, labels])
+
+  const getSystemLabel = useCallback((system: AnatomySystem) => {
+    const i18nObj = i18n as AnatomyI18n | undefined
+    const labelsObj = labels as AnatomyI18n | undefined
+    const i18nFlat = i18n as Record<string, string> | undefined
+    const labelsFlat = labels as Record<string, string> | undefined
+    return (
+      i18nObj?.systems?.[system] ??
+      labelsObj?.systems?.[system] ??
+      (typeof i18nFlat?.[system] === 'string' ? i18nFlat[system] : undefined) ??
+      (typeof labelsFlat?.[system] === 'string' ? labelsFlat[system] : undefined) ??
+      SYSTEM_LABELS[system]
+    )
+  }, [i18n, labels])
+
+  const getCategoryLabel = useCallback((category: string) => {
+    const i18nObj = i18n as AnatomyI18n | undefined
+    const labelsObj = labels as AnatomyI18n | undefined
+    const i18nFlat = i18n as Record<string, string> | undefined
+    const labelsFlat = labels as Record<string, string> | undefined
+    return (
+      i18nObj?.categories?.[category] ??
+      labelsObj?.categories?.[category] ??
+      (typeof i18nFlat?.[category] === 'string' ? i18nFlat[category] : undefined) ??
+      (typeof labelsFlat?.[category] === 'string' ? labelsFlat[category] : undefined) ??
+      category
+    )
+  }, [i18n, labels])
+
+  const getUiText = useCallback(<K extends keyof AnatomyI18n>(field: K, fallback: string): string => {
+    const v1 = (i18n as AnatomyI18n | undefined)?.[field]
+    if (typeof v1 === 'string') return v1
+    const v2 = (labels as AnatomyI18n | undefined)?.[field]
+    if (typeof v2 === 'string') return v2
+    return fallback
+  }, [i18n, labels])
+
   const callouts: Callout[] = useMemo(() => visiblePins.map(p => {
     const info = ANATOMY_BY_KEY[p.key]
     return {
       key: p.key,
-      title: p.title ?? info.category,
-      subtitle: info.label,
+      title: p.title ?? getCategoryLabel(info.category),
+      subtitle: getStructureLabel(p.key, info.label),
       items: p.items ?? [],
       color: p.color ?? CATEGORY_COLORS[info.category] ?? '#d94f0b',
     }
-  }), [visiblePins])
+  }), [visiblePins, getCategoryLabel, getStructureLabel])
 
   const handleProject = useCallback((anchors: ProjectedAnchor[], w: number, h: number) => {
     overlayRef.current?.update(anchors, w, h)
@@ -166,18 +241,19 @@ export function AnatomyViewer({
   }, [])
 
   // A plain scroll wheel over the body scrolls the page (OrbitControls' own
-  // wheel-zoom is off). Zoom only on an explicit gesture: trackpad pinch /
-  // Ctrl+wheel (both arrive as wheel events with ctrlKey set) or the +/- buttons.
+  // wheel-zoom is intercepted in capture phase; touch pinch-zoom stays enabled).
+  // Zoom only on an explicit gesture: trackpad pinch / Ctrl+wheel or +/- buttons.
   useEffect(() => {
     const el = canvasWrapRef.current
     if (!el) return
     const onWheel = (e: WheelEvent) => {
+      e.stopImmediatePropagation()
       if (!e.ctrlKey && !e.metaKey) return
       e.preventDefault()
       dolly(Math.exp(e.deltaY * 0.0025))
     }
-    el.addEventListener('wheel', onWheel, { passive: false })
-    return () => el.removeEventListener('wheel', onWheel)
+    el.addEventListener('wheel', onWheel, { passive: false, capture: true })
+    return () => el.removeEventListener('wheel', onWheel, { capture: true })
   }, [dolly])
 
   function setAzimuthAngle(angle: number) {
@@ -201,11 +277,18 @@ export function AnatomyViewer({
 
   const hoveredInfo = hoveredKey ? ANATOMY_BY_KEY[hoveredKey] : null
   const { active: loading, progress } = useProgress()
+  const roundedProgress = Math.round(progress)
+  const loadingFn = (i18n as AnatomyI18n | undefined)?.loading ?? (labels as AnatomyI18n | undefined)?.loading
+  const loadingText = typeof loadingFn === 'function'
+    ? loadingFn(roundedProgress)
+    : typeof loadingFn === 'string'
+      ? `${loadingFn} ${roundedProgress}%`
+      : `Loading 3D anatomy… ${roundedProgress}%`
 
   return (
     <div className={cn('oa3d-viewer', className)} style={style}>
       {showSexToggle && (
-        <div className="oa3d-sex-toggle" role="radiogroup" aria-label="Body">
+        <div className="oa3d-sex-toggle" role="radiogroup" aria-label={getUiText('bodyGroupLabel', 'Body')}>
           {(['male', 'female'] as const).map(option => (
             <button
               key={option}
@@ -215,7 +298,7 @@ export function AnatomyViewer({
               className={cn('oa3d-sex-option', sex === option && 'oa3d-sex-option-on')}
               onClick={() => { setSex(option); setHoveredKey(null) }}
             >
-              {option === 'male' ? 'Male' : 'Female'}
+              {option === 'male' ? getUiText('male', 'Male') : getUiText('female', 'Female')}
             </button>
           ))}
           <span className={cn('oa3d-sex-thumb', sex === 'female' && 'oa3d-sex-thumb-right')} aria-hidden />
@@ -223,7 +306,7 @@ export function AnatomyViewer({
       )}
 
       {showLayerToggles && (
-        <div className="oa3d-layers" role="group" aria-label="Body systems">
+        <div className="oa3d-layers" role="group" aria-label={getUiText('systemsGroupLabel', 'Body systems')}>
           {LAYER_ORDER.map(system => (
             <button
               key={system}
@@ -233,7 +316,7 @@ export function AnatomyViewer({
               onClick={() => setLayers({ ...layers, [system]: !layers[system] })}
             >
               <span className={cn('oa3d-swatch', `oa3d-swatch-${system}`)} />
-              {SYSTEM_LABELS[system]}
+              {getSystemLabel(system)}
             </button>
           ))}
         </div>
@@ -261,6 +344,7 @@ export function AnatomyViewer({
                 onProject={handleProject}
                 hoverColor={hoverColor}
                 highlightColor={highlightColor}
+                keyColors={keyColors}
               />
             </Bvh>
           </Suspense>
@@ -268,7 +352,7 @@ export function AnatomyViewer({
             ref={controlsRef}
             makeDefault
             target={TARGET}
-            enableZoom={false}
+            enableZoom
             enableDamping
             dampingFactor={0.08}
             enablePan
@@ -295,28 +379,28 @@ export function AnatomyViewer({
 
         {loading && (
           <div className="oa3d-loading" role="status">
-            <span className="oa3d-loading-bar"><span style={{ width: `${Math.round(progress)}%` }} /></span>
-            <span className="oa3d-loading-text">Loading 3D anatomy… {Math.round(progress)}%</span>
+            <span className="oa3d-loading-bar"><span style={{ width: `${roundedProgress}%` }} /></span>
+            <span className="oa3d-loading-text">{loadingText}</span>
           </div>
         )}
 
         {hoveredInfo && (
           <div className="oa3d-hover-tag" aria-live="polite">
-            <span className="oa3d-hover-name">{hoveredInfo.label}</span>
+            <span className="oa3d-hover-name">{getStructureLabel(hoveredInfo.key, hoveredInfo.label)}</span>
             {hoverHint && <span className="oa3d-hover-hint">{hoverHint}</span>}
           </div>
         )}
 
         {showZoomControls && (
           <>
-            <button type="button" className="oa3d-zoom oa3d-zoom-out" onClick={() => dolly(1.18)} aria-label="Zoom out">−</button>
-            <button type="button" className="oa3d-reset" onClick={resetView} aria-label="Reset view">Reset</button>
-            <button type="button" className="oa3d-zoom oa3d-zoom-in" onClick={() => dolly(1 / 1.18)} aria-label="Zoom in">+</button>
+            <button type="button" className="oa3d-zoom oa3d-zoom-out" onClick={() => dolly(1.18)} aria-label={getUiText('zoomOut', 'Zoom out')}>−</button>
+            <button type="button" className="oa3d-reset" onClick={resetView} aria-label={getUiText('reset', 'Reset view')}>{getUiText('reset', 'Reset')}</button>
+            <button type="button" className="oa3d-zoom oa3d-zoom-in" onClick={() => dolly(1 / 1.18)} aria-label={getUiText('zoomIn', 'Zoom in')}>+</button>
           </>
         )}
         {children}
       </div>
-      {showRotateControl && <RotateArcControl rotationY={azimuth} onChange={setAzimuthAngle} />}
+      {showRotateControl && <RotateArcControl rotationY={azimuth} onChange={setAzimuthAngle} label={getUiText('rotateLabel', 'Drag left or right to rotate the model')} />}
     </div>
   )
 }

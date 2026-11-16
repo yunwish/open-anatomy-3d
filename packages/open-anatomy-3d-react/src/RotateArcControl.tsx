@@ -5,6 +5,7 @@ import { cn } from './cn'
 interface RotateArcControlProps {
   rotationY: number
   onChange: (radians: number) => void
+  label?: string
 }
 
 // Radians of model rotation per pixel of horizontal drag.
@@ -32,7 +33,7 @@ function clampRotation(r: number): number {
 
 /** An arc with a draggable handle under the body: drag left/right to turn
  *  the model. The handle slides along the arc to track the rotation. */
-export function RotateArcControl({ rotationY, onChange }: RotateArcControlProps) {
+export function RotateArcControl({ rotationY, onChange, label = 'Drag left or right to rotate the model' }: RotateArcControlProps) {
   const dragRef = useRef<{ startX: number; startRotation: number } | null>(null)
   const [dragging, setDragging] = useState(false)
 
@@ -69,7 +70,7 @@ export function RotateArcControl({ rotationY, onChange }: RotateArcControlProps)
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
-        aria-label="Drag left or right to rotate the model"
+        aria-label={label}
       >
         <svg viewBox="0 0 24 24" className="oa3d-rotate-icon" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
           <path d="M9 6l-5 6 5 6M15 6l5 6-5 6" />

@@ -38,6 +38,8 @@ export interface AnatomyModelProps {
   hoverColor?: THREE.ColorRepresentation
   /** Colour of highlighted structures. */
   highlightColor?: THREE.ColorRepresentation
+  /** [local] Per-structure highlight colours. */
+  keyColors?: Record<string, string>
 }
 
 // Translucent "medical illustration" skin: nearly clear where the surface
@@ -125,11 +127,13 @@ export function AnatomyModel({
   onProject,
   hoverColor = '#ff7a2f',
   highlightColor = '#e5391b',
+  keyColors,
 }: AnatomyModelProps) {
   const { scene } = useGLTF(url ?? modelUrl(sex), false, true)
   const { camera, size } = useThree()
   const hover = useMemo(() => new THREE.Color(hoverColor), [hoverColor])
   const flag = useMemo(() => new THREE.Color(highlightColor), [highlightColor])
+  const keyCols = useMemo(() => Object.fromEntries(Object.entries(keyColors ?? {}).map(([k, c]) => [k, new THREE.Color(c)])), [keyColors])
 
   const { root, parts, systemGroups } = useMemo(() => {
     const root = scene.clone(true)
@@ -235,8 +239,8 @@ export function AnatomyModel({
           mat.emissive.copy(hover)
           mat.emissiveIntensity = 0.75
         } else if (flagged) {
-          mat.emissive.copy(flag)
-          mat.emissiveIntensity = pulse
+          mat.emissive.copy(keyCols[part.key] ?? flag)
+          mat.emissiveIntensity = keyCols[part.key] ? 0.55 + 0.15 * Math.sin(clock.elapsedTime * 2) : pulse
         } else {
           mat.emissiveIntensity = 0
         }
